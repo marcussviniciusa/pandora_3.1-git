@@ -1,8 +1,14 @@
-const { v4: uuidv4 } = require('uuid');
-const db = require('../config/database');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
+const { v4: uuidv4 } = require('uuid');
+const db = require('../config/database');
 const whatsappClientManager = require('../services/whatsappClientManager');
+
+// Função utilitária para validar UUID
+const isValidUUID = (id) => {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(id);
+};
 
 // Função utilitária para registrar eventos de canal
 const registerChannelEvent = async (channelId, eventType, eventData = {}) => {
@@ -44,6 +50,11 @@ const getChannel = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
     
+    // Validar se o ID é um UUID válido
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ error: true, message: 'ID de canal inválido' });
+    }
+    
     const result = await db.query(
       'SELECT * FROM channels WHERE id = $1 AND user_id = $2',
       [id, userId]
@@ -77,6 +88,11 @@ const getChannelDetails = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    
+    // Validar se o ID é um UUID válido
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ error: true, message: 'ID de canal inválido' });
+    }
     
     // Verificar se o canal existe e pertence ao usuário
     const channelResult = await db.query(
@@ -146,6 +162,11 @@ const connectWhatsApp = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
     
+    // Validar se o ID é um UUID válido
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ error: true, message: 'ID de canal inválido' });
+    }
+    
     // Verificar se o canal existe e pertence ao usuário
     const channelResult = await db.query(
       'SELECT * FROM channels WHERE id = $1 AND user_id = $2 AND type = $3',
@@ -157,6 +178,25 @@ const connectWhatsApp = async (req, res) => {
     }
     
     const channel = channelResult.rows[0];
+    
+    // Verificar se já existe um cliente ativo
+    if (whatsappClientManager.hasClient(channel.id)) {
+      console.log(`Cliente WhatsApp já existe para o canal ${channel.id}, retornando cliente existente`);
+      
+      // Verificar status atual do cliente
+      const client = whatsappClientManager.getClient(channel.id);
+      const clientInfo = client ? { state: client.getState ? await client.getState() : 'unknown' } : { state: 'unknown' };
+      
+      return res.status(200).json({
+        error: false,
+        message: 'Cliente WhatsApp já está inicializado',
+        data: {
+          channelId: channel.id,
+          status: channel.status,
+          clientInfo
+        }
+      });
+    }
     
     // Criar cliente WhatsApp
     const client = new Client({
@@ -184,7 +224,7 @@ const connectWhatsApp = async (req, res) => {
         // Gerar QR Code como data URL
         const qrDataURL = await qrcode.toDataURL(qr);
         
-        // Armazenar QR Code no PostgreSQL em vez de Redis
+        // Armazenar QR Code no PostgreSQL
         await db.query(
           `INSERT INTO channel_events (id, channel_id, type, metadata, created_at)
            VALUES ($1, $2, $3, $4, NOW())`,
@@ -193,7 +233,7 @@ const connectWhatsApp = async (req, res) => {
         
         // Atualizar status do canal
         await db.query(
-          'UPDATE channels SET status = $1 WHERE id = $2',
+          'UPDATE channels SET status = $1, updated_at = NOW() WHERE id = $2',
           ['qr_ready', channel.id]
         );
         
@@ -202,12 +242,7 @@ const connectWhatsApp = async (req, res) => {
           timestamp: new Date().toISOString()
         });
         
-        // Publicar evento de QR Code pronto
-        // await redisUtils.publish('channel:whatsapp:events', {
-        //   type: 'qr_ready',
-        //   channelId: channel.id,
-        //   userId: userId
-        // });
+        console.log(`QR Code gerado para o canal ${channel.id}`);
       } catch (error) {
         console.error('Erro ao processar QR Code:', error);
       }
@@ -218,14 +253,14 @@ const connectWhatsApp = async (req, res) => {
       try {
         // Atualizar dados de conexão
         await db.query(
-          'UPDATE channel_connections SET credentials = $1, last_connected = NOW() WHERE channel_id = $2',
+          'UPDATE channel_connections SET credentials = $1, last_connected = NOW(), updated_at = NOW() WHERE channel_id = $2',
           [JSON.stringify(session), channel.id]
         );
         
         // Atualizar status do canal
         await db.query(
-          'UPDATE channels SET status = $1 WHERE id = $2',
-          ['connected', channel.id]
+          'UPDATE channels SET status = $1, updated_at = NOW() WHERE id = $2',
+          ['authenticated', channel.id]
         );
         
         // Registrar evento na tabela channel_events
@@ -233,12 +268,7 @@ const connectWhatsApp = async (req, res) => {
           timestamp: new Date().toISOString()
         });
         
-        // Publicar evento de conexão
-        // await redisUtils.publish('channel:whatsapp:events', {
-        //   type: 'connected',
-        //   channelId: channel.id,
-        //   userId: userId
-        // });
+        console.log(`Cliente WhatsApp autenticado para o canal ${channel.id}`);
       } catch (error) {
         console.error('Erro ao processar autenticação:', error);
       }
@@ -258,24 +288,130 @@ const connectWhatsApp = async (req, res) => {
           [channel.id]
         );
         
+        // Atualizar status do canal
+        await db.query(
+          'UPDATE channels SET status = $1, updated_at = NOW() WHERE id = $2',
+          ['connected', channel.id]
+        );
+        
         // Registrar evento na tabela channel_events
         await registerChannelEvent(channel.id, 'ready', {
           timestamp: new Date().toISOString()
         });
-        
-        // Publicar evento de pronto
-        // await redisUtils.publish('channel:whatsapp:events', {
-        //   type: 'ready',
-        //   channelId: channel.id,
-        //   userId: userId
-        // });
       } catch (error) {
         console.error('Erro ao processar evento ready:', error);
       }
     });
     
+    // Evento de desconexão
+    client.on('disconnected', async (reason) => {
+      try {
+        console.log(`Cliente WhatsApp desconectado para o canal ${channel.id}. Motivo: ${reason}`);
+        
+        // Atualizar status do canal
+        await db.query(
+          'UPDATE channels SET status = $1, updated_at = NOW() WHERE id = $2',
+          ['disconnected', channel.id]
+        );
+        
+        // Registrar evento na tabela channel_events
+        await registerChannelEvent(channel.id, 'disconnected', {
+          timestamp: new Date().toISOString(),
+          reason
+        });
+        
+        // Remover cliente do gerenciador
+        whatsappClientManager.removeClient(channel.id);
+      } catch (error) {
+        console.error('Erro ao processar evento de desconexão:', error);
+      }
+    });
+    
+    // Manipular mensagens recebidas
+    client.on('message', async (message) => {
+      try {
+        console.log(`Mensagem recebida no canal ${channel.id}: ${message.body}`);
+        
+        // Obter informações do remetente
+        const contact = await message.getContact();
+        
+        // Verificar se já existe uma conversa com esse contato
+        const conversationResult = await db.query(
+          'SELECT * FROM conversations WHERE channel_id = $1 AND contact_id = $2',
+          [channel.id, message.from]
+        );
+        
+        let conversationId;
+        
+        if (conversationResult.rows.length === 0) {
+          // Criar nova conversa
+          const newConversation = await db.query(
+            `INSERT INTO conversations 
+             (id, channel_id, contact_id, contact_name, contact_info, last_message_at, created_at, updated_at) 
+             VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW()) 
+             RETURNING id`,
+            [
+              uuidv4(), 
+              channel.id, 
+              message.from, 
+              contact.name || contact.pushname || message.from, 
+              JSON.stringify({
+                name: contact.name || contact.pushname,
+                number: message.from,
+                isGroup: message.isGroup
+              })
+            ]
+          );
+          
+          conversationId = newConversation.rows[0].id;
+        } else {
+          conversationId = conversationResult.rows[0].id;
+          
+          // Atualizar última mensagem
+          await db.query(
+            'UPDATE conversations SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1',
+            [conversationId]
+          );
+        }
+        
+        // Inserir mensagem no banco de dados
+        await db.query(
+          `INSERT INTO messages 
+           (id, conversation_id, channel_id, direction, content, status, external_id, timestamp, metadata) 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            uuidv4(),
+            conversationId,
+            channel.id,
+            'inbound',
+            message.body,
+            'received',
+            message.id._serialized,
+            new Date(message.timestamp * 1000).toISOString(),
+            JSON.stringify({
+              hasMedia: message.hasMedia,
+              messageType: message.type,
+              from: message.from,
+              raw: JSON.stringify(message)
+            })
+          ]
+        );
+        
+        // Registrar evento na tabela channel_events
+        await registerChannelEvent(channel.id, 'message_received', {
+          timestamp: new Date().toISOString(),
+          from: message.from,
+          messageId: message.id._serialized
+        });
+      } catch (error) {
+        console.error('Erro ao processar mensagem:', error);
+      }
+    });
+    
     // Iniciar cliente
-    client.initialize();
+    client.initialize().catch(err => {
+      console.error(`Erro ao inicializar cliente WhatsApp para o canal ${channel.id}:`, err);
+    });
     
     // Adicionar cliente ao gerenciador
     whatsappClientManager.addClient(channel.id, client);
@@ -288,12 +424,9 @@ const connectWhatsApp = async (req, res) => {
     
     // Atualizar status do canal
     await db.query(
-      'UPDATE channels SET status = $1 WHERE id = $2',
+      'UPDATE channels SET status = $1, updated_at = NOW() WHERE id = $2',
       ['connecting', channel.id]
     );
-    
-    // Armazenar cliente no Redis
-    // await redisUtils.setCache(`whatsapp:client:${channel.id}:instance`, 'initializing', 60 * 5); // 5 minutos
     
     // Responder com sucesso
     res.status(200).json({
@@ -305,7 +438,7 @@ const connectWhatsApp = async (req, res) => {
     });
   } catch (error) {
     console.error('Erro ao conectar WhatsApp:', error);
-    res.status(500).json({ error: true, message: 'Erro no servidor' });
+    res.status(500).json({ error: true, message: 'Erro no servidor: ' + error.message });
   }
 };
 
@@ -314,6 +447,11 @@ const getWhatsAppQR = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    
+    // Validar se o ID é um UUID válido
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ error: true, message: 'ID de canal inválido' });
+    }
     
     // Verificar se o canal existe e pertence ao usuário
     const channelResult = await db.query(
@@ -372,13 +510,13 @@ const connectInstagram = async (req, res) => {
     
     // Atualizar dados de conexão (em uma aplicação real, usaria a API do Instagram)
     await db.query(
-      'UPDATE channel_connections SET credentials = $1, last_connected = NOW() WHERE channel_id = $2',
+      'UPDATE channel_connections SET credentials = $1, last_connected = NOW(), updated_at = NOW() WHERE channel_id = $2',
       [JSON.stringify({ username }), id]
     );
     
     // Atualizar status do canal
     await db.query(
-      'UPDATE channels SET status = $1 WHERE id = $2',
+      'UPDATE channels SET status = $1, updated_at = NOW() WHERE id = $2',
       ['connected', id]
     );
     
@@ -408,6 +546,11 @@ const getChannelStatus = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
     
+    // Validar se o ID é um UUID válido
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ error: true, message: 'ID de canal inválido' });
+    }
+    
     const result = await db.query(
       'SELECT id, status, updated_at FROM channels WHERE id = $1 AND user_id = $2',
       [id, userId]
@@ -432,6 +575,11 @@ const getChannelStats = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    
+    // Validar se o ID é um UUID válido
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ error: true, message: 'ID de canal inválido' });
+    }
     
     // Verificar se o canal existe e pertence ao usuário
     const channelResult = await db.query(
@@ -486,6 +634,11 @@ const getChannelEvents = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
     
+    // Validar se o ID é um UUID válido
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ error: true, message: 'ID de canal inválido' });
+    }
+    
     // Verificar se o canal existe e pertence ao usuário
     const channelResult = await db.query(
       'SELECT * FROM channels WHERE id = $1 AND user_id = $2',
@@ -517,6 +670,11 @@ const connectChannel = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    
+    // Validar se o ID é um UUID válido
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ error: true, message: 'ID de canal inválido' });
+    }
     
     // Verificar se o canal existe e pertence ao usuário
     const channelResult = await db.query(
@@ -554,6 +712,11 @@ const disconnectChannel = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
     
+    // Validar se o ID é um UUID válido
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ error: true, message: 'ID de canal inválido' });
+    }
+    
     // Verificar se o canal existe e pertence ao usuário
     const channelResult = await db.query(
       'SELECT * FROM channels WHERE id = $1 AND user_id = $2',
@@ -568,7 +731,7 @@ const disconnectChannel = async (req, res) => {
     
     // Atualizar status do canal
     await db.query(
-      'UPDATE channels SET status = $1 WHERE id = $2',
+      'UPDATE channels SET status = $1, updated_at = NOW() WHERE id = $2',
       ['disconnected', channel.id]
     );
     
@@ -613,6 +776,12 @@ const updateChannelSettings = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    
+    // Validar se o ID é um UUID válido
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ error: true, message: 'ID de canal inválido' });
+    }
+    
     const { name, settings } = req.body;
     
     // Verificar se o canal existe e pertence ao usuário
@@ -720,6 +889,11 @@ const deleteChannel = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
     
+    // Validar se o ID é um UUID válido
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ error: true, message: 'ID de canal inválido' });
+    }
+    
     // Verificar se o canal existe e pertence ao usuário
     const channelResult = await db.query(
       'SELECT * FROM channels WHERE id = $1 AND user_id = $2',
@@ -738,10 +912,12 @@ const deleteChannel = async (req, res) => {
       try {
         // Desconectar cliente específico do tipo de canal
         if (channel.type === 'whatsapp') {
-          // Remover cliente do Redis
-          // await redisUtils.deleteCache(`whatsapp:client:${channel.id}`);
-          // await redisUtils.deleteCache(`whatsapp:client:${channel.id}:instance`);
-          // await redisUtils.deleteCache(`whatsapp:qrcode:${channel.id}`);
+          const client = whatsappClientManager.getClient(channel.id);
+          if (client) {
+            await client.logout();
+            await client.destroy();
+            whatsappClientManager.removeClient(channel.id);
+          }
         }
       } catch (disconnectError) {
         console.error('Erro ao desconectar canal antes da exclusão:', disconnectError);
@@ -755,34 +931,38 @@ const deleteChannel = async (req, res) => {
       channelName: channel.name
     });
     
-    // Excluir canal e dados relacionados
+    // Iniciar transação
     await db.query('BEGIN');
     
-    // Excluir conexões
-    await db.query('DELETE FROM channel_connections WHERE channel_id = $1', [id]);
-    
-    // Excluir eventos
-    await db.query('DELETE FROM channel_events WHERE channel_id = $1', [id]);
-    
-    // Excluir mensagens
-    await db.query('DELETE FROM messages WHERE channel_id = $1', [id]);
-    
-    // Excluir conversas
-    await db.query('DELETE FROM conversations WHERE channel_id = $1', [id]);
-    
-    // Excluir o canal
-    await db.query('DELETE FROM channels WHERE id = $1', [id]);
-    
-    await db.query('COMMIT');
-    
-    res.status(200).json({ 
-      error: false, 
-      message: 'Canal excluído com sucesso' 
-    });
+    try {
+      // Excluir mensagens
+      await db.query('DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE channel_id = $1)', [id]);
+      
+      // Excluir conversas
+      await db.query('DELETE FROM conversations WHERE channel_id = $1', [id]);
+      
+      // Excluir eventos
+      await db.query('DELETE FROM channel_events WHERE channel_id = $1', [id]);
+      
+      // Excluir conexões
+      await db.query('DELETE FROM channel_connections WHERE channel_id = $1', [id]);
+      
+      // Excluir o canal
+      await db.query('DELETE FROM channels WHERE id = $1', [id]);
+      
+      await db.query('COMMIT');
+      
+      res.status(200).json({ 
+        error: false, 
+        message: 'Canal excluído com sucesso' 
+      });
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error; // Propagar o erro para ser tratado abaixo
+    }
   } catch (error) {
-    await db.query('ROLLBACK');
     console.error('Erro ao excluir canal:', error);
-    res.status(500).json({ error: true, message: 'Erro no servidor' });
+    res.status(500).json({ error: true, message: 'Erro no servidor: ' + error.message });
   }
 };
 
@@ -834,6 +1014,11 @@ const disconnectWhatsApp = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
     
+    // Validar se o ID é um UUID válido
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ error: true, message: 'ID de canal inválido' });
+    }
+    
     // Verificar se o canal existe e pertence ao usuário
     const channelResult = await db.query(
       'SELECT * FROM channels WHERE id = $1 AND user_id = $2 AND type = $3',
@@ -851,7 +1036,7 @@ const disconnectWhatsApp = async (req, res) => {
     
     // Atualizar status do canal
     await db.query(
-      'UPDATE channels SET status = $1 WHERE id = $2',
+      'UPDATE channels SET status = $1, updated_at = NOW() WHERE id = $2',
       ['disconnected', id]
     );
     
@@ -883,21 +1068,181 @@ const disconnectWhatsApp = async (req, res) => {
   }
 };
 
+// Alternar conexão do canal (conectar/desconectar)
+const toggleChannelConnection = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    
+    // Validar se o ID é um UUID válido
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ error: true, message: 'ID de canal inválido' });
+    }
+    
+    // Verificar se o canal existe e pertence ao usuário
+    const channelResult = await db.query(
+      'SELECT * FROM channels WHERE id = $1 AND user_id = $2',
+      [id, userId]
+    );
+    
+    if (channelResult.rows.length === 0) {
+      return res.status(404).json({ error: true, message: 'Canal não encontrado' });
+    }
+    
+    const channel = channelResult.rows[0];
+    
+    // Verificar o status atual e decidir a ação
+    if (channel.status === 'connected') {
+      // Se está conectado, desconectar
+      if (channel.type === 'whatsapp') {
+        // Desconectar cliente WhatsApp
+        const client = whatsappClientManager.getClient(id);
+        if (client) {
+          try {
+            await client.logout();
+            await client.destroy();
+            whatsappClientManager.removeClient(id);
+          } catch (err) {
+            console.error('Erro ao desconectar cliente WhatsApp:', err);
+          }
+        }
+      }
+      
+      // Atualizar status do canal
+      await db.query(
+        'UPDATE channels SET status = $1, updated_at = NOW() WHERE id = $2',
+        ['disconnected', id]
+      );
+      
+      // Registrar evento
+      await registerChannelEvent(id, 'disconnected', {
+        timestamp: new Date().toISOString()
+      });
+      
+    } else {
+      // Se não está conectado, iniciar conexão
+      if (channel.type === 'whatsapp') {
+        // Criar cliente WhatsApp
+        const client = new Client({
+          puppeteer: {
+            headless: true,
+            args: [
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage',
+              '--disable-accelerated-2d-canvas',
+              '--no-first-run',
+              '--no-zygote',
+              '--single-process',
+              '--disable-gpu'
+            ]
+          },
+          authStrategy: new LocalAuth({
+            clientId: channel.id
+          })
+        });
+        
+        // Configurar eventos do cliente
+        client.on('qr', async (qr) => {
+          try {
+            // Gerar QR Code como data URL
+            const qrDataURL = await qrcode.toDataURL(qr);
+            
+            // Armazenar QR Code no PostgreSQL
+            await db.query(
+              `INSERT INTO channel_events (id, channel_id, type, metadata, created_at)
+               VALUES ($1, $2, $3, $4, NOW())`,
+              [uuidv4(), channel.id, 'qr_code', JSON.stringify({ qrDataURL })]
+            );
+            
+            // Atualizar status do canal
+            await db.query(
+              'UPDATE channels SET status = $1, updated_at = NOW() WHERE id = $2',
+              ['qr_ready', channel.id]
+            );
+            
+            // Registrar evento
+            await registerChannelEvent(channel.id, 'qr_ready', {
+              timestamp: new Date().toISOString()
+            });
+            
+            console.log(`QR Code gerado para o canal ${channel.id}`);
+          } catch (error) {
+            console.error('Erro ao processar QR Code:', error);
+          }
+        });
+        
+        // Configurar outros eventos...
+        client.on('authenticated', async () => {
+          await db.query(
+            'UPDATE channels SET status = $1, updated_at = NOW() WHERE id = $2',
+            ['authenticated', channel.id]
+          );
+        });
+        
+        client.on('ready', async () => {
+          await db.query(
+            'UPDATE channels SET status = $1, updated_at = NOW() WHERE id = $2',
+            ['connected', channel.id]
+          );
+        });
+        
+        // Iniciar cliente
+        client.initialize().catch(err => {
+          console.error(`Erro ao inicializar cliente WhatsApp para o canal ${channel.id}:`, err);
+        });
+        
+        // Adicionar cliente ao gerenciador
+        whatsappClientManager.addClient(channel.id, client);
+      }
+      
+      // Atualizar status do canal para connecting
+      await db.query(
+        'UPDATE channels SET status = $1, updated_at = NOW() WHERE id = $2',
+        ['connecting', id]
+      );
+      
+      // Registrar evento
+      await registerChannelEvent(id, 'connecting', {
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    // Obter o status atualizado do canal
+    const updatedChannelResult = await db.query(
+      'SELECT * FROM channels WHERE id = $1',
+      [id]
+    );
+    
+    const updatedChannel = updatedChannelResult.rows[0];
+    
+    return res.status(200).json({
+      error: false,
+      message: `Alterando estado do canal para: ${updatedChannel.status}`,
+      data: updatedChannel
+    });
+  } catch (error) {
+    console.error('Erro ao alternar conexão do canal:', error);
+    res.status(500).json({ error: true, message: 'Erro no servidor: ' + error.message });
+  }
+};
+
 module.exports = {
+  createChannel,
   listChannels,
   getChannel,
   getChannelDetails,
-  createChannel,
-  connectWhatsApp,
-  getWhatsAppQR,
-  connectInstagram,
   getChannelStatus,
-  getChannelStats,
-  getChannelEvents,
   connectChannel,
   disconnectChannel,
   updateChannelSettings,
-  deleteChannel,
+  getChannelStats,
+  getChannelEvents,
+  connectWhatsApp,
+  getWhatsAppQR,
   checkWhatsAppStatus,
-  disconnectWhatsApp
+  disconnectWhatsApp,
+  toggleChannelConnection,
+  connectInstagram,
+  deleteChannel
 };

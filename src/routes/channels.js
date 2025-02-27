@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const channelController = require('../controllers/channelController');
+const conversationController = require('../controllers/conversationController');
 const { authenticateJWT } = require('../middleware/auth');
 
 // Middleware de autenticação para todas as rotas
@@ -22,11 +23,15 @@ router.post('/whatsapp/:id/disconnect', channelController.disconnectWhatsApp);
 // Rotas específicas para Instagram
 router.post('/instagram/:id/connect', channelController.connectInstagram);
 
+// Rotas para conversas de canais
+router.get('/:id/conversations', conversationController.listConversations);
+
 // Novas rotas para detalhes do canal
 router.get('/:id/stats', channelController.getChannelStats);
 router.get('/:id/events', channelController.getChannelEvents);
 router.post('/:id/connect', channelController.connectChannel);
 router.post('/:id/disconnect', channelController.disconnectChannel);
+router.put('/:id/toggle-connection', channelController.toggleChannelConnection);
 router.put('/:id/settings', channelController.updateChannelSettings);
 router.delete('/:id', channelController.deleteChannel);
 

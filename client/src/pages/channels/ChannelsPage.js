@@ -57,48 +57,20 @@ function ChannelsPage() {
     const fetchChannels = async () => {
       try {
         setLoading(true);
+        const response = await axios.get('/api/channels');
         
-        // Em um cenário real, você buscaria dados da API
-        // Simulando dados para demonstração
+        if (response.data && !response.data.error) {
+          setChannels(response.data.data || response.data);
+        } else {
+          throw new Error(response.data.message || 'Erro ao carregar canais');
+        }
         
-        // Simular atraso de rede
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // Dados simulados
-        const mockChannels = [
-          {
-            id: 1,
-            name: 'WhatsApp Principal',
-            type: 'whatsapp',
-            description: 'Canal principal de WhatsApp para atendimento',
-            status: 'connected',
-            createdAt: new Date(2023, 0, 15)
-          },
-          {
-            id: 2,
-            name: 'Instagram Oficial',
-            type: 'instagram',
-            description: 'Canal oficial do Instagram',
-            status: 'connected',
-            createdAt: new Date(2023, 1, 20)
-          },
-          {
-            id: 3,
-            name: 'WhatsApp Vendas',
-            type: 'whatsapp',
-            description: 'Canal de WhatsApp exclusivo para vendas',
-            status: 'disconnected',
-            createdAt: new Date(2023, 2, 10)
-          }
-        ];
-        
-        setChannels(mockChannels);
         setLoading(false);
       } catch (error) {
         console.error('Erro ao carregar canais:', error);
         setSnackbar({
           open: true,
-          message: 'Erro ao carregar canais',
+          message: 'Erro ao carregar canais: ' + (error.response?.data?.message || error.message),
           severity: 'error'
         });
         setLoading(false);
@@ -176,53 +148,53 @@ function ChannelsPage() {
     if (!validateForm()) return;
     
     try {
-      // Em um cenário real, você enviaria dados para a API
-      // Simulando operação para demonstração
+      setLoading(true);
       
-      // Simular atraso de rede
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      let response;
       
       if (dialogType === 'add') {
-        // Simular adição de canal
-        const newChannel = {
-          id: Date.now(),
-          ...formData,
-          status: 'disconnected',
-          createdAt: new Date()
-        };
+        // Criar novo canal
+        response = await axios.post('/api/channels', formData);
         
-        setChannels(prev => [...prev, newChannel]);
-        
-        setSnackbar({
-          open: true,
-          message: 'Canal adicionado com sucesso',
-          severity: 'success'
-        });
+        if (response.data && !response.data.error) {
+          const newChannel = response.data.data || response.data;
+          setChannels(prev => [...prev, newChannel]);
+          
+          setSnackbar({
+            open: true,
+            message: 'Canal criado com sucesso',
+            severity: 'success'
+          });
+        }
       } else {
-        // Simular edição de canal
-        setChannels(prev => 
-          prev.map(ch => 
-            ch.id === selectedChannel.id 
-              ? { ...ch, ...formData } 
-              : ch
-          )
-        );
+        // Atualizar canal existente
+        response = await axios.put(`/api/channels/${selectedChannel.id}`, formData);
         
-        setSnackbar({
-          open: true,
-          message: 'Canal atualizado com sucesso',
-          severity: 'success'
-        });
+        if (response.data && !response.data.error) {
+          const updatedChannel = response.data.data || response.data;
+          
+          setChannels(prev => 
+            prev.map(ch => ch.id === selectedChannel.id ? updatedChannel : ch)
+          );
+          
+          setSnackbar({
+            open: true,
+            message: 'Canal atualizado com sucesso',
+            severity: 'success'
+          });
+        }
       }
       
-      handleCloseDialog();
+      setOpenDialog(false);
+      setLoading(false);
     } catch (error) {
       console.error('Erro ao salvar canal:', error);
       setSnackbar({
         open: true,
-        message: `Erro ao ${dialogType === 'add' ? 'adicionar' : 'atualizar'} canal`,
+        message: 'Erro ao salvar canal: ' + (error.response?.data?.message || error.message),
         severity: 'error'
       });
+      setLoading(false);
     }
   };
   
@@ -233,63 +205,66 @@ function ChannelsPage() {
     }
     
     try {
-      // Em um cenário real, você enviaria uma requisição para a API
-      // Simulando operação para demonstração
+      setLoading(true);
       
-      // Simular atraso de rede
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const response = await axios.delete(`/api/channels/${channel.id}`);
       
-      // Remover canal da lista
-      setChannels(prev => prev.filter(ch => ch.id !== channel.id));
+      if (response.data && !response.data.error) {
+        setChannels(prev => prev.filter(ch => ch.id !== channel.id));
+        
+        setSnackbar({
+          open: true,
+          message: 'Canal excluído com sucesso',
+          severity: 'success'
+        });
+      } else {
+        throw new Error(response.data.message || 'Erro ao excluir canal');
+      }
       
-      setSnackbar({
-        open: true,
-        message: 'Canal excluído com sucesso',
-        severity: 'success'
-      });
+      setLoading(false);
     } catch (error) {
       console.error('Erro ao excluir canal:', error);
       setSnackbar({
         open: true,
-        message: 'Erro ao excluir canal',
+        message: 'Erro ao excluir canal: ' + (error.response?.data?.message || error.message),
         severity: 'error'
       });
+      setLoading(false);
     }
   };
   
   // Conectar/desconectar canal
   const handleToggleConnection = async (channel) => {
     try {
-      // Em um cenário real, você enviaria uma requisição para a API
-      // Simulando operação para demonstração
+      setLoading(true);
       
-      // Simular atraso de rede
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const response = await axios.put(`/api/channels/${channel.id}/toggle-connection`);
       
-      // Atualizar status do canal
-      setChannels(prev => 
-        prev.map(ch => 
-          ch.id === channel.id 
-            ? { 
-                ...ch, 
-                status: ch.status === 'connected' ? 'disconnected' : 'connected' 
-              } 
-            : ch
-        )
-      );
+      if (response.data && !response.data.error) {
+        const updatedChannel = response.data.data || response.data;
+        
+        setChannels(prev => 
+          prev.map(ch => ch.id === channel.id ? updatedChannel : ch)
+        );
+        
+        setSnackbar({
+          open: true,
+          message: `Canal ${channel.status === 'connected' ? 'desconectado' : 'conectado'} com sucesso`,
+          severity: 'success'
+        });
+      } else {
+        throw new Error(response.data.message || 'Erro ao alterar conexão do canal');
+      }
       
-      setSnackbar({
-        open: true,
-        message: `Canal ${channel.status === 'connected' ? 'desconectado' : 'conectado'} com sucesso`,
-        severity: 'success'
-      });
+      setLoading(false);
     } catch (error) {
       console.error('Erro ao alterar conexão do canal:', error);
       setSnackbar({
         open: true,
-        message: 'Erro ao alterar conexão do canal',
+        message: 'Erro ao alterar conexão do canal: ' + (error.response?.data?.message || error.message),
         severity: 'error'
       });
+      setLoading(false);
     }
   };
   

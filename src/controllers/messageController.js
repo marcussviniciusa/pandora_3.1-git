@@ -1,6 +1,13 @@
 const { v4: uuidv4 } = require('uuid');
 const db = require('../config/database');
+const whatsappClientManager = require('../services/whatsappClientManager');
 const { redisUtils } = require('../config/redis');
+
+// Validar se um ID é um UUID válido
+const isValidUUID = (id) => {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(id);
+};
 
 // Enviar mensagem
 const sendMessage = async (req, res) => {
@@ -221,8 +228,167 @@ const receiveWebhook = async (req, res) => {
   }
 };
 
+// Enviar mensagem pelo WhatsApp
+const sendWhatsAppMessage = async (req, res) => {
+  try {
+    const { channelId, conversationId } = req.params;
+    const { message, mediaUrl } = req.body;
+    const userId = req.user.id;
+    
+    // Validar parâmetros
+    if (!isValidUUID(channelId)) {
+      return res.status(400).json({ error: true, message: 'ID de canal inválido' });
+    }
+    
+    if (!isValidUUID(conversationId)) {
+      return res.status(400).json({ error: true, message: 'ID de conversa inválido' });
+    }
+    
+    if (!message && !mediaUrl) {
+      return res.status(400).json({ error: true, message: 'Mensagem ou URL de mídia são obrigatórios' });
+    }
+    
+    // Verificar se o canal existe e pertence ao usuário
+    const channelResult = await db.query(
+      'SELECT * FROM channels WHERE id = $1 AND user_id = $2 AND type = $3',
+      [channelId, userId, 'whatsapp']
+    );
+    
+    if (channelResult.rows.length === 0) {
+      return res.status(404).json({ error: true, message: 'Canal não encontrado' });
+    }
+    
+    const channel = channelResult.rows[0];
+    
+    // Verificar se o canal está conectado
+    if (channel.status !== 'connected') {
+      return res.status(400).json({ error: true, message: 'Canal não está conectado' });
+    }
+    
+    // Verificar se a conversa existe e pertence ao canal
+    const conversationResult = await db.query(
+      'SELECT * FROM conversations WHERE id = $1 AND channel_id = $2',
+      [conversationId, channelId]
+    );
+    
+    if (conversationResult.rows.length === 0) {
+      return res.status(404).json({ error: true, message: 'Conversa não encontrada' });
+    }
+    
+    const conversation = conversationResult.rows[0];
+    
+    // Obter cliente WhatsApp
+    const client = whatsappClientManager.getClient(channelId);
+    
+    if (!client) {
+      return res.status(500).json({ error: true, message: 'Cliente WhatsApp não inicializado' });
+    }
+    
+    // Enviar mensagem
+    let sent;
+    let mediaId;
+    
+    // Se tiver URL de mídia, enviar como mídia
+    if (mediaUrl) {
+      sent = await client.sendMessage(conversation.contact_id, mediaUrl, {
+        caption: message || ''
+      });
+    } else {
+      // Enviar texto simples
+      sent = await client.sendMessage(conversation.contact_id, message);
+    }
+    
+    // Registrar mensagem no banco de dados
+    const messageId = uuidv4();
+    await db.query(
+      `INSERT INTO messages 
+       (id, conversation_id, channel_id, direction, content, media_url, media_type, status, external_id, timestamp, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10)`,
+      [
+        messageId,
+        conversationId,
+        channelId,
+        'outbound',
+        message || '',
+        mediaUrl || null,
+        mediaUrl ? 'image' : null, // Simplificado, idealmente deveria detectar o tipo de mídia
+        'sent',
+        sent.id._serialized,
+        JSON.stringify({
+          messageType: sent.type,
+          to: conversation.contact_id
+        })
+      ]
+    );
+    
+    // Atualizar data da última mensagem na conversa
+    await db.query(
+      'UPDATE conversations SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1',
+      [conversationId]
+    );
+    
+    res.status(200).json({
+      error: false,
+      message: 'Mensagem enviada com sucesso',
+      data: {
+        messageId,
+        externalId: sent.id._serialized,
+        timestamp: new Date().toISOString(),
+        status: 'sent'
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao enviar mensagem WhatsApp:', error);
+    res.status(500).json({ error: true, message: 'Erro ao enviar mensagem: ' + error.message });
+  }
+};
+
+// Listar mensagens de uma conversa
+const listMessages = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const userId = req.user.id;
+    
+    // Validar se o ID é um UUID válido
+    if (!isValidUUID(conversationId)) {
+      return res.status(400).json({ error: true, message: 'ID de conversa inválido' });
+    }
+    
+    // Verificar se a conversa existe e pertence ao usuário
+    const conversationResult = await db.query(
+      `SELECT c.* FROM conversations c
+       JOIN channels ch ON c.channel_id = ch.id
+       WHERE c.id = $1 AND ch.user_id = $2`,
+      [conversationId, userId]
+    );
+    
+    if (conversationResult.rows.length === 0) {
+      return res.status(404).json({ error: true, message: 'Conversa não encontrada' });
+    }
+    
+    // Obter mensagens da conversa
+    const messagesResult = await db.query(
+      `SELECT * FROM messages 
+       WHERE conversation_id = $1 
+       ORDER BY timestamp DESC 
+       LIMIT 50`,
+      [conversationId]
+    );
+    
+    res.status(200).json({
+      error: false,
+      data: messagesResult.rows
+    });
+  } catch (error) {
+    console.error('Erro ao listar mensagens:', error);
+    res.status(500).json({ error: true, message: 'Erro ao listar mensagens' });
+  }
+};
+
 module.exports = {
   sendMessage,
   getMessageStatus,
-  receiveWebhook
+  receiveWebhook,
+  sendWhatsAppMessage,
+  listMessages
 };
