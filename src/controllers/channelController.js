@@ -13,6 +13,17 @@ const isValidUUID = (id) => {
 // Função utilitária para registrar eventos de canal
 const registerChannelEvent = async (channelId, eventType, eventData = {}) => {
   try {
+    // Verificar se o canal ainda existe
+    const channelExists = await db.query(
+      'SELECT id FROM channels WHERE id = $1',
+      [channelId]
+    );
+    
+    if (channelExists.rows.length === 0) {
+      console.log(`Evento ${eventType} não registrado pois o canal ${channelId} não existe mais`);
+      return;
+    }
+    
     await db.query(
       `INSERT INTO channel_events (id, channel_id, type, metadata, created_at)
        VALUES ($1, $2, $3, $4, NOW())`,
@@ -221,6 +232,29 @@ const connectWhatsApp = async (req, res) => {
     // Gerar QR Code
     client.on('qr', async (qr) => {
       try {
+        console.log('QR Code gerado para o canal', channel.id);
+        
+        // Verificar se o canal ainda existe antes de inserir o evento
+        const channelExists = await db.query(
+          'SELECT id FROM channels WHERE id = $1',
+          [channel.id]
+        );
+        
+        if (channelExists.rows.length === 0) {
+          console.log(`Canal ${channel.id} não existe mais, ignorando evento de QR code`);
+          
+          // Se o canal não existe mais, limpar o cliente
+          try {
+            await client.destroy().catch(e => console.error('Erro ao destruir cliente:', e));
+            whatsappClientManager.removeClient(channel.id);
+            console.log(`Cliente WhatsApp removido após detecção de canal inexistente`);
+          } catch (cleanupError) {
+            console.error('Erro ao limpar cliente de canal inexistente:', cleanupError);
+          }
+          
+          return;
+        }
+        
         // Gerar QR Code como data URL
         const qrDataURL = await qrcode.toDataURL(qr);
         
@@ -408,13 +442,11 @@ const connectWhatsApp = async (req, res) => {
       }
     });
     
-    // Iniciar cliente
-    client.initialize().catch(err => {
-      console.error(`Erro ao inicializar cliente WhatsApp para o canal ${channel.id}:`, err);
-    });
-    
     // Adicionar cliente ao gerenciador
     whatsappClientManager.addClient(channel.id, client);
+    
+    // Inicializar cliente
+    await client.initialize();
     
     // Registrar evento de início de conexão
     await registerChannelEvent(channel.id, 'connection_started', {
@@ -448,8 +480,11 @@ const getWhatsAppQR = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
     
+    console.log(`Solicitação de QR Code para canal: ${id}, usuário: ${userId}`);
+    
     // Validar se o ID é um UUID válido
     if (!isValidUUID(id)) {
+      console.log(`ID de canal inválido: ${id}`);
       return res.status(400).json({ error: true, message: 'ID de canal inválido' });
     }
     
@@ -458,6 +493,8 @@ const getWhatsAppQR = async (req, res) => {
       'SELECT * FROM channels WHERE id = $1 AND user_id = $2 AND type = $3',
       [id, userId, 'whatsapp']
     );
+    
+    console.log(`Resultado da busca do canal: ${channelResult.rows.length} registros encontrados`);
     
     if (channelResult.rows.length === 0) {
       return res.status(404).json({ error: true, message: 'Canal não encontrado' });
@@ -469,11 +506,16 @@ const getWhatsAppQR = async (req, res) => {
       [id, 'qr_code']
     );
     
+    console.log(`Resultado da busca de QR code: ${qrCodeResult.rows.length} registros encontrados`);
+    
     if (qrCodeResult.rows.length === 0) {
       return res.status(404).json({ error: true, message: 'QR Code não disponível ou expirado' });
     }
     
-    const qrCode = JSON.parse(qrCodeResult.rows[0].metadata).qrDataURL;
+    const qrCodeData = JSON.parse(qrCodeResult.rows[0].metadata);
+    console.log('Metadata do QR code:', Object.keys(qrCodeData));
+    
+    const qrCode = qrCodeData.qrDataURL;
     
     res.status(200).json({
       error: false,
@@ -907,20 +949,28 @@ const deleteChannel = async (req, res) => {
     const channel = channelResult.rows[0];
     
     // Verificar se o canal está conectado
-    if (channel.status === 'connected') {
+    if (channel.status === 'connected' || whatsappClientManager.hasClient(id)) {
       // Tentar desconectar primeiro
       try {
         // Desconectar cliente específico do tipo de canal
         if (channel.type === 'whatsapp') {
-          const client = whatsappClientManager.getClient(channel.id);
+          const client = whatsappClientManager.getClient(id);
           if (client) {
-            await client.logout();
-            await client.destroy();
-            whatsappClientManager.removeClient(channel.id);
+            console.log(`Desconectando cliente WhatsApp para o canal ${id} antes da exclusão`);
+            await client.logout().catch(e => console.error('Erro ao fazer logout do cliente:', e));
+            await client.destroy().catch(e => console.error('Erro ao destruir cliente:', e));
           }
+          // Sempre remover o cliente do gerenciador, mesmo se ocorrer erro no logout/destroy
+          whatsappClientManager.removeClient(id);
+          console.log(`Cliente WhatsApp removido do gerenciador para o canal ${id}`);
         }
       } catch (disconnectError) {
         console.error('Erro ao desconectar canal antes da exclusão:', disconnectError);
+        // Mesmo com erro, garantir que o cliente seja removido
+        if (channel.type === 'whatsapp') {
+          whatsappClientManager.removeClient(id);
+          console.log(`Cliente WhatsApp forçadamente removido do gerenciador para o canal ${id}`);
+        }
       }
     }
     
@@ -1118,7 +1168,6 @@ const toggleChannelConnection = async (req, res) => {
       await registerChannelEvent(id, 'disconnected', {
         timestamp: new Date().toISOString()
       });
-      
     } else {
       // Se não está conectado, iniciar conexão
       if (channel.type === 'whatsapp') {
@@ -1145,6 +1194,29 @@ const toggleChannelConnection = async (req, res) => {
         // Configurar eventos do cliente
         client.on('qr', async (qr) => {
           try {
+            console.log('QR Code gerado para o canal', channel.id);
+            
+            // Verificar se o canal ainda existe antes de inserir o evento
+            const channelExists = await db.query(
+              'SELECT id FROM channels WHERE id = $1',
+              [channel.id]
+            );
+            
+            if (channelExists.rows.length === 0) {
+              console.log(`Canal ${channel.id} não existe mais, ignorando evento de QR code`);
+              
+              // Se o canal não existe mais, limpar o cliente
+              try {
+                await client.destroy().catch(e => console.error('Erro ao destruir cliente:', e));
+                whatsappClientManager.removeClient(channel.id);
+                console.log(`Cliente WhatsApp removido após detecção de canal inexistente`);
+              } catch (cleanupError) {
+                console.error('Erro ao limpar cliente de canal inexistente:', cleanupError);
+              }
+              
+              return;
+            }
+            
             // Gerar QR Code como data URL
             const qrDataURL = await qrcode.toDataURL(qr);
             
@@ -1165,35 +1237,27 @@ const toggleChannelConnection = async (req, res) => {
             await registerChannelEvent(channel.id, 'qr_ready', {
               timestamp: new Date().toISOString()
             });
-            
-            console.log(`QR Code gerado para o canal ${channel.id}`);
-          } catch (error) {
-            console.error('Erro ao processar QR Code:', error);
+          } catch (err) {
+            console.error('Erro ao processar QR Code:', err);
           }
         });
-        
-        // Configurar outros eventos...
-        client.on('authenticated', async () => {
-          await db.query(
-            'UPDATE channels SET status = $1, updated_at = NOW() WHERE id = $2',
-            ['authenticated', channel.id]
-          );
-        });
-        
+
+        // Adicionar outros eventos do cliente
         client.on('ready', async () => {
+          console.log(`Cliente WhatsApp pronto para o canal ${channel.id}`);
+          
+          // Atualizar status do canal
           await db.query(
             'UPDATE channels SET status = $1, updated_at = NOW() WHERE id = $2',
             ['connected', channel.id]
           );
         });
         
-        // Iniciar cliente
-        client.initialize().catch(err => {
-          console.error(`Erro ao inicializar cliente WhatsApp para o canal ${channel.id}:`, err);
-        });
-        
         // Adicionar cliente ao gerenciador
         whatsappClientManager.addClient(channel.id, client);
+        
+        // Inicializar cliente
+        await client.initialize();
       }
       
       // Atualizar status do canal para connecting

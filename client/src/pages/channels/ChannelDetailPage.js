@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -33,26 +33,34 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
+  LinearProgress
 } from '@mui/material';
 import {
-  Person as PersonIcon,
-  Message as MessageIcon,
+  Dashboard as DashboardIcon,
   Settings as SettingsIcon,
   History as HistoryIcon,
-  Refresh as RefreshIcon,
   WhatsApp as WhatsAppIcon,
   Instagram as InstagramIcon,
-  Facebook as FacebookIcon,
   Telegram as TelegramIcon,
-  Edit as EditIcon,
-  Save as SaveIcon,
-  Cancel as CancelIcon,
+  Facebook as FacebookIcon,
+  Email as EmailIcon,
+  Phone as PhoneIcon,
+  Chat as ChatIcon,
   Delete as DeleteIcon,
+  Edit as EditIcon,
+  Refresh as RefreshIcon,
+  PowerSettingsNew as PowerSettingsNewIcon,
+  Close as CloseIcon,
+  ArrowBack as ArrowBackIcon,
+  Person as PersonIcon,
+  Message as MessageIcon,
   QrCode as QrCodeIcon,
   Link as LinkIcon,
   LinkOff as LinkOffIcon,
-  Chat as ChatIcon,
-  ArrowBack as ArrowBackIcon
+  Save as SaveIcon,
+  Cancel as CancelIcon,
+  Info as InfoIcon,
+  BarChart as BarChartIcon
 } from '@mui/icons-material';
 import axios from 'axios';
 import ConversationList from '../../components/ConversationList';
@@ -60,60 +68,150 @@ import ConversationChat from '../../components/ConversationChat';
 
 // Componente para exibir QR Code
 const QRCodeDisplay = ({ qrCode, refreshQR }) => {
-  const [timeLeft, setTimeLeft] = useState(60);
+  const [countdown, setCountdown] = useState(60);
   
   useEffect(() => {
-    if (qrCode) {
-      setTimeLeft(60); // Reset do contador quando novo QR code é recebido
-      
-      const timer = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-      
-      return () => clearInterval(timer);
-    }
+    if (!qrCode) return;
+    
+    // Iniciar countdown
+    setCountdown(60);
+    const timer = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    
+    return () => clearInterval(timer);
   }, [qrCode]);
   
-  if (!qrCode) {
-    return (
-      <Box sx={{ textAlign: 'center', p: 3 }}>
-        <CircularProgress />
-        <Typography variant="body2" sx={{ mt: 2 }}>
-          Gerando QR Code...
-        </Typography>
-      </Box>
-    );
-  }
+  if (!qrCode) return null;
   
   return (
-    <Box sx={{ textAlign: 'center', p: 3 }}>
-      <Box sx={{ mb: 2 }}>
-        <img src={qrCode} alt="QR Code para conexão WhatsApp" style={{ maxWidth: '100%' }} />
+    <Paper 
+      elevation={0} 
+      sx={{ 
+        p: 4, 
+        textAlign: 'center',
+        borderRadius: 4,
+        background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(79, 70, 229, 0.03) 100%)',
+        border: '1px solid rgba(99, 102, 241, 0.12)',
+        backdropFilter: 'blur(8px)',
+        maxWidth: 500,
+        mx: 'auto',
+        position: 'relative',
+        overflow: 'hidden'
+      }}
+    >
+      <Box 
+        sx={{ 
+          position: 'absolute', 
+          top: 0, 
+          left: 0, 
+          width: '100%', 
+          height: 6, 
+          bgcolor: 'primary.light',
+          opacity: 0.7,
+        }}
+      >
+        <Box 
+          sx={{ 
+            height: '100%',
+            width: `${(countdown / 60) * 100}%`,
+            bgcolor: 'primary.main',
+            borderRadius: '0 3px 3px 0',
+            transition: 'width 1s linear'
+          }}
+        />
       </Box>
-      <Typography variant="body2" gutterBottom>
-        Escaneie este QR Code com seu WhatsApp
+      
+      <Typography 
+        variant="h5" 
+        gutterBottom 
+        sx={{ 
+          fontWeight: 600, 
+          mb: 1,
+          background: 'linear-gradient(90deg, #6366F1 0%, #4F46E5 100%)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+          letterSpacing: '0.5px',
+        }}
+      >
+        Conecte seu WhatsApp
       </Typography>
-      <Typography variant="caption" color="error" display="block" gutterBottom>
-        Expira em {timeLeft} segundos
+      
+      <Typography variant="body1" color="text.secondary" paragraph sx={{ mb: 3 }}>
+        Escaneie o QR code com seu celular para conectar sua conta WhatsApp (válido por {countdown} segundos)
       </Typography>
-      {timeLeft === 0 && (
-        <Button 
-          variant="outlined" 
+      
+      <Box 
+        sx={{ 
+          m: 'auto', 
+          mb: 3, 
+          p: 2, 
+          bgcolor: 'white', 
+          width: 'fit-content', 
+          borderRadius: 3,
+          border: '1px solid rgba(0, 0, 0, 0.06)',
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
+          position: 'relative',
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            top: -5,
+            left: -5,
+            right: -5,
+            bottom: -5,
+            background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
+            zIndex: -1,
+            borderRadius: 4,
+            opacity: 0.2,
+          }
+        }}
+      >
+        <img 
+          src={`data:image/png;base64,${qrCode}`} 
+          alt="QR Code WhatsApp" 
+          style={{ 
+            width: 220, 
+            height: 220, 
+            display: 'block',
+          }} 
+        />
+      </Box>
+      
+      <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
+        <Button
+          variant="outlined"
           color="primary"
-          size="small"
           onClick={refreshQR}
-          sx={{ mt: 1 }}
+          startIcon={<RefreshIcon />}
+          size="large"
+          sx={{ 
+            borderRadius: 2, 
+            px: 3,
+            fontWeight: 600,
+            borderColor: 'rgba(99, 102, 241, 0.5)',
+            '&:hover': {
+              borderColor: '#6366F1',
+              backgroundColor: 'rgba(99, 102, 241, 0.04)'
+            }
+          }}
         >
-          Atualizar QR Code
+          Gerar Novo QR Code
         </Button>
-      )}
-    </Box>
+      </Box>
+      
+      <Box sx={{ mt: 3, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center' }}>
+          <InfoIcon sx={{ fontSize: 16, mr: 0.5, color: 'info.main' }} /> 
+          Mantenha esta página aberta até concluir a conexão
+        </Typography>
+      </Box>
+    </Paper>
   );
 };
 
@@ -272,19 +370,26 @@ const ChannelSettings = ({ settings, onSave, readOnly }) => {
   );
 };
 
-// Função para buscar o QR code do WhatsApp
-const fetchWhatsAppQR = async (channelId) => {
-  try {
-    const response = await axios.get(`/api/channels/whatsapp/${channelId}/qrcode`);
-    if (response.data && response.data.data && response.data.data.qrCode) {
-      return response.data.data.qrCode;
-    }
-    return null;
-  } catch (err) {
-    console.error('Erro ao buscar QR Code:', err);
-    return null;
-  }
-};
+// Componente personalizado TabPanel
+function TabPanel(props) {
+  const { children, value, index, ...other } = props;
+
+  return (
+    <div
+      role="tabpanel"
+      hidden={value !== index}
+      id={`tabpanel-${index}`}
+      aria-labelledby={`tab-${index}`}
+      {...other}
+    >
+      {value === index && (
+        <Box>
+          {children}
+        </Box>
+      )}
+    </div>
+  );
+}
 
 function ChannelDetailPage() {
   const { id } = useParams();
@@ -304,6 +409,100 @@ function ChannelDetailPage() {
   });
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
   const [selectedConversation, setSelectedConversation] = useState(null);
+  
+  // Função para verificar e atualizar o status do canal
+  const checkConnectionStatus = useCallback(async (attemptNumber = 1) => {
+    if (!id || !channel || channel.type !== 'whatsapp') return;
+    
+    try {
+      // Limitar o número total de verificações para evitar loop infinito
+      if (attemptNumber > 60) {
+        console.log('Número máximo de verificações atingido', attemptNumber);
+        setLoading(false);
+        return;
+      }
+      
+      const response = await axios.get(`/api/channels/whatsapp/${id}/status`, { 
+        timeout: 5000 // 5 segundos de timeout
+      });
+      
+      // Verificamos dados da API (pode variar conforme estrutura)
+      const newStatus = response.data.data?.status || response.data.status;
+      
+      // Lógica para determinar frequência de polling:
+      // - Mais frequente durante conexão inicial (a cada 2 segundos)
+      // - Menos frequente quando já estabilizado (a cada 5 segundos)
+      const nextDelay = (attemptNumber < 10 || 
+                       newStatus === 'connecting' || 
+                       newStatus === 'qr_ready') ? 2000 : 5000;
+      
+      // Se o status mudou, atualizamos o canal localmente
+      if (newStatus && channel.status !== newStatus) {
+        setChannel(prev => ({ ...prev, status: newStatus }));
+        
+        // Se conectado, podemos parar o polling ou continuar com intervalo maior
+        if (newStatus === 'connected') {
+          console.log('WhatsApp conectado com sucesso!');
+          setSnackbar({
+            open: true,
+            message: 'WhatsApp conectado com sucesso!',
+            severity: 'success'
+          });
+          setLoading(false);
+        } 
+        // Se desconectado após tentar conectar, mostramos o erro
+        else if (newStatus === 'disconnected' && attemptNumber > 3) {
+          console.log('Não foi possível conectar o WhatsApp');
+          setSnackbar({
+            open: true,
+            message: 'Não foi possível conectar o WhatsApp. Tente novamente.',
+            severity: 'error'
+          });
+          setLoading(false);
+        }
+        // Se em erro, paramos o polling e mostramos o erro
+        else if (newStatus === 'error') {
+          console.error('Erro na conexão do WhatsApp');
+          setSnackbar({
+            open: true,
+            message: 'Erro na conexão do WhatsApp. Tente novamente.',
+            severity: 'error'
+          });
+          setLoading(false);
+          return; // Não continuamos o polling
+        }
+      }
+      
+      // Continuar verificando o status (recursive polling with timeout)
+      setTimeout(() => {
+        // Apenas continuamos o polling se o canal não estiver em estado "final" 
+        // ou se ainda estivermos nas primeiras verificações
+        if (attemptNumber < 10 || 
+            (newStatus !== 'connected' && newStatus !== 'error' && newStatus !== 'disconnected')) {
+          checkConnectionStatus(attemptNumber + 1);
+        } else {
+          setLoading(false);
+        }
+      }, nextDelay);
+      
+    } catch (err) {
+      console.error('Erro ao verificar status da conexão:', err);
+      
+      // Apenas mostramos erro após algumas tentativas, para evitar alertas prematuros
+      if (attemptNumber > 3) {
+        setSnackbar({
+          open: true,
+          message: 'Erro ao verificar status da conexão. ' + (err.response?.data?.message || err.message),
+          severity: 'error'
+        });
+        setLoading(false);
+      } else {
+        // Se for erro nas primeiras tentativas, continuamos o polling com backoff
+        const nextDelay = Math.min(2000 * Math.pow(1.5, attemptNumber - 1), 10000);
+        setTimeout(() => checkConnectionStatus(attemptNumber + 1), nextDelay);
+      }
+    }
+  }, [id, channel]);
   
   // Obter dados do canal
   useEffect(() => {
@@ -361,91 +560,64 @@ function ChannelDetailPage() {
   
   // Função para conectar/desconectar o canal
   const handleToggleConnection = async () => {
+    if (!channel || !id) return;
+    
+    setLoading(true);
+    
     try {
-      setLoading(true);
-      
-      if (channel?.status === 'connected') {
-        // Desconectar
-        await axios.post(`/api/channels/${id}/disconnect`);
-        setChannel(prev => ({ ...prev, status: 'disconnected' }));
-        setSnackbar({
-          open: true,
-          message: 'Canal desconectado com sucesso',
-          severity: 'success'
-        });
-      } else {
-        // Conectar
-        let response;
-        
-        if (channel?.type === 'whatsapp') {
-          response = await axios.post(`/api/channels/whatsapp/${id}/connect`);
+      // Conectar ou desconectar canal WhatsApp
+      if (channel.type === 'whatsapp') {
+        if (channel.status === 'connected') {
+          // Desconectar
+          const response = await axios.post(`/api/channels/whatsapp/${id}/disconnect`);
+          
+          if (response.data.success) {
+            setSnackbar({
+              open: true,
+              message: 'Canal desconectado com sucesso',
+              severity: 'success'
+            });
+            setChannel(prev => ({ ...prev, status: 'disconnected' }));
+            setQrCode(null);
+          } else {
+            throw new Error(response.data.message || 'Não foi possível desconectar o canal');
+          }
         } else {
-          response = await axios.post(`/api/channels/${id}/connect`);
-        }
-        
-        // Se a conexão foi iniciada e é um canal WhatsApp, começar a buscar o QR code
-        if (channel?.type === 'whatsapp') {
-          setChannel(prev => ({ ...prev, status: 'connecting' }));
+          // Conectar
+          const response = await axios.post(`/api/channels/whatsapp/${id}/connect`);
           
-          // Esperar um pouco para que o QR code seja gerado no backend
-          setTimeout(async () => {
-            // Obter QR Code
-            const qrResponse = await fetchWhatsAppQR(channel.id);
-            if (qrResponse) {
-              setQrCode(qrResponse);
+          if (response.data.success) {
+            setSnackbar({
+              open: true,
+              message: 'Iniciando conexão...',
+              severity: 'info'
+            });
+            
+            // Atualizar status para conectando
+            setChannel(prev => ({ ...prev, status: 'connecting' }));
+            
+            // Buscar QR Code
+            const qrCodeData = await fetchWhatsAppQR(id);
+            if (qrCodeData) {
+              setQrCode(qrCodeData);
             }
-          }, 3000);
-          
-          // Configurar polling para verificar status e QR code
-          const pollingInterval = setInterval(async () => {
-            try {
-              // Verificar status do canal
-              const statusResponse = await axios.get(`/api/channels/whatsapp/${id}/status`);
-              const newStatus = statusResponse.data.data.status || statusResponse.data.status;
-              setChannel(prev => ({ ...prev, status: newStatus }));
-              
-              // Se conectado, parar polling
-              if (newStatus === 'connected') {
-                clearInterval(pollingInterval);
-                setQrCode(null);
-                setSnackbar({
-                  open: true,
-                  message: 'Canal conectado com sucesso',
-                  severity: 'success'
-                });
-              } 
-              // Se ainda em QR ready, obter QR code atualizado
-              else if (newStatus === 'qr_ready' || newStatus === 'connecting') {
-                const newQrResponse = await fetchWhatsAppQR(channel.id);
-                if (newQrResponse) {
-                  setQrCode(newQrResponse);
-                }
-              }
-            } catch (err) {
-              console.error('Erro durante polling de status:', err);
-            }
-          }, 5000); // Verificar a cada 5 segundos
-          
-          // Limpar polling quando o componente for desmontado
-          return () => clearInterval(pollingInterval);
-        } else {
-          setChannel(prev => ({ ...prev, status: response.data.status }));
+            
+            // Iniciar verificação de status
+            checkConnectionStatus();
+          } else {
+            throw new Error(response.data.message || 'Não foi possível iniciar a conexão');
+          }
         }
-        
-        setSnackbar({
-          open: true,
-          message: 'Iniciando conexão do canal',
-          severity: 'success'
-        });
       }
+      // Outros tipos de canais podem ser implementados aqui
+      
     } catch (err) {
-      console.error('Erro ao alterar conexão do canal:', err);
+      console.error('Erro ao alternar conexão:', err);
       setSnackbar({
         open: true,
-        message: `Erro ao ${channel?.status === 'connected' ? 'desconectar' : 'conectar'} o canal`,
+        message: 'Erro ao alternar conexão: ' + (err.response?.data?.message || err.message),
         severity: 'error'
       });
-    } finally {
       setLoading(false);
     }
   };
@@ -496,6 +668,151 @@ function ChannelDetailPage() {
     }
   };
   
+  // Função para atualizar manualmente o QR Code
+  const handleRefreshQR = async () => {
+    if (id && channel?.type === 'whatsapp') {
+      try {
+        setSnackbar({
+          open: true,
+          message: 'Solicitando novo QR Code...',
+          severity: 'info'
+        });
+        
+        // Primeiro verificamos o status atual do canal
+        const statusResponse = await axios.get(`/api/channels/whatsapp/${id}/status`);
+        const currentStatus = statusResponse.data.data?.status || statusResponse.data.status;
+        
+        // Se estiver em um estado que permita atualização do QR code
+        if (currentStatus === 'qr_ready' || currentStatus === 'connecting' || currentStatus === 'disconnected') {
+          // Opcionalmente podemos reiniciar a conexão
+          if (currentStatus === 'disconnected') {
+            await axios.post(`/api/channels/whatsapp/${id}/connect`);
+            // Esperar um pouco para que o backend gere um novo QR code
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          }
+          
+          const newQrResponse = await fetchWhatsAppQR(id);
+          if (newQrResponse) {
+            setQrCode(newQrResponse);
+            setSnackbar({
+              open: true,
+              message: 'QR Code atualizado com sucesso',
+              severity: 'success'
+            });
+          } else {
+            setSnackbar({
+              open: true,
+              message: 'Não foi possível obter um novo QR Code',
+              severity: 'error'
+            });
+          }
+        } else {
+          setSnackbar({
+            open: true,
+            message: `Não é possível atualizar o QR Code no estado atual (${currentStatus})`,
+            severity: 'warning'
+          });
+        }
+      } catch (error) {
+        console.error('Erro ao atualizar QR Code:', error);
+        setSnackbar({
+          open: true,
+          message: 'Erro ao atualizar QR Code: ' + error.message,
+          severity: 'error'
+        });
+      }
+    }
+  };
+  
+  // Função para buscar QR code do WhatsApp com retry
+  const fetchWhatsAppQR = async (channelId, retryCount = 0) => {
+    try {
+      const response = await axios.get(`/api/channels/whatsapp/${channelId}/qr-code`, { 
+        timeout: 10000 // 10 segundos de timeout
+      });
+      
+      if (response.data && (response.data.data?.qrcode || response.data.qrcode)) {
+        // Tratamento normalizado para diferentes estruturas de resposta
+        const qrCode = response.data.data?.qrcode || response.data.qrcode;
+        return qrCode;
+      } else if (response.data && response.data.error) {
+        // Caso a API retorne um erro explícito
+        console.error('Erro retornado pela API:', response.data.error);
+        setSnackbar({
+          open: true,
+          message: `Erro ao obter QR Code: ${response.data.error || response.data.message || 'Erro desconhecido'}`,
+          severity: 'error'
+        });
+        return null;
+      } else {
+        // Resposta sem erro explícito mas sem o qrcode esperado
+        console.error('Resposta inválida ao buscar QR Code:', response.data);
+        
+        // Tenta novamente se estiver dentro do limite de retentativas
+        if (retryCount < 3) {
+          console.log(`Tentando novamente obter QR Code (${retryCount + 1}/3)...`);
+          
+          // Espera exponencial entre retentativas (500ms, 1000ms, 2000ms)
+          await new Promise(r => setTimeout(r, 500 * Math.pow(2, retryCount)));
+          return fetchWhatsAppQR(channelId, retryCount + 1);
+        } else {
+          setSnackbar({
+            open: true,
+            message: 'Não foi possível obter o QR Code após várias tentativas',
+            severity: 'error'
+          });
+          return null;
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao buscar QR Code:', err);
+      
+      // Tratamento específico para timeout
+      if (err.code === 'ECONNABORTED') {
+        setSnackbar({
+          open: true,
+          message: 'Tempo limite excedido ao buscar QR Code. O servidor pode estar sobrecarregado.',
+          severity: 'error'
+        });
+      } 
+      // Tratamento para erros HTTP com resposta
+      else if (err.response) {
+        setSnackbar({
+          open: true,
+          message: `Erro ao buscar QR Code: ${err.response.data?.message || err.response.statusText || err.message}`,
+          severity: 'error'
+        });
+      } 
+      // Erro de conexão ou rede
+      else if (err.request) {
+        setSnackbar({
+          open: true,
+          message: 'Erro de conexão ao buscar QR Code. Verifique sua conexão com a internet.',
+          severity: 'warning'
+        });
+      } 
+      // Outros erros
+      else {
+        setSnackbar({
+          open: true,
+          message: `Erro ao buscar QR Code: ${err.message}`,
+          severity: 'error'
+        });
+      }
+      
+      // Tenta novamente se estiver dentro do limite de retentativas
+      if (retryCount < 3) {
+        console.log(`Tentando novamente após erro (${retryCount + 1}/3)...`);
+        
+        // Espera exponencial entre retentativas (1s, 2s, 4s)
+        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, retryCount)));
+        return fetchWhatsAppQR(channelId, retryCount + 1);
+      }
+      
+      return null;
+    }
+  };
+  
   // Fechar snackbar
   const handleCloseSnackbar = () => {
     setSnackbar(prev => ({ ...prev, open: false }));
@@ -528,28 +845,178 @@ function ChannelDetailPage() {
   return (
     <Box sx={{ p: 3 }}>
       {/* Cabeçalho */}
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 4 }}>
         <Button 
           variant="outlined" 
           startIcon={<ArrowBackIcon />} 
           onClick={() => navigate('/channels')}
-          sx={{ mr: 2 }}
+          sx={{ 
+            mr: 2,
+            borderColor: 'rgba(0, 0, 0, 0.12)',
+            color: 'text.secondary',
+            '&:hover': {
+              borderColor: 'rgba(0, 0, 0, 0.24)',
+              backgroundColor: 'rgba(0, 0, 0, 0.02)'
+            }
+          }}
         >
           Voltar
         </Button>
-        <Typography variant="h5" component="h1" sx={{ flexGrow: 1 }}>
-          Detalhes do Canal
+        <Typography 
+          variant="h4" 
+          component="h1" 
+          sx={{ 
+            flexGrow: 1, 
+            fontWeight: 600,
+            background: 'linear-gradient(90deg, #111827 0%, #374151 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+          }}
+        >
+          {channel?.name || 'Detalhes do Canal'}
         </Typography>
         <Button 
           variant="outlined" 
           color="error" 
           startIcon={<DeleteIcon />} 
           onClick={() => setOpenDeleteDialog(true)}
-          sx={{ ml: 1 }}
+          sx={{ 
+            borderColor: 'rgba(239, 68, 68, 0.5)',
+            '&:hover': {
+              borderColor: '#EF4444',
+              backgroundColor: 'rgba(239, 68, 68, 0.04)'
+            }
+          }}
         >
           Excluir
         </Button>
       </Box>
+      
+      {/* Barra de status de conexão */}
+      {channel?.type === 'whatsapp' && (
+        <Paper 
+          elevation={0} 
+          sx={{ 
+            p: 3, 
+            mb: 4, 
+            borderRadius: 3,
+            background: 'white',
+            border: '1px solid rgba(0, 0, 0, 0.06)',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <Box
+                sx={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: '50%',
+                  mr: 2,
+                  background: 
+                    channel.status === 'connected' 
+                      ? 'linear-gradient(135deg, #10B981 0%, #059669 100%)' 
+                      : (channel.status === 'connecting' || channel.status === 'qr_ready') 
+                        ? 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)' 
+                        : 'linear-gradient(135deg, #EF4444 0%, #DC2626 100%)',
+                  boxShadow: 
+                    channel.status === 'connected' 
+                      ? '0 0 8px rgba(16, 185, 129, 0.6)' 
+                      : (channel.status === 'connecting' || channel.status === 'qr_ready')
+                        ? '0 0 8px rgba(245, 158, 11, 0.6)'
+                        : '0 0 8px rgba(239, 68, 68, 0.6)',
+                  animation: (channel.status === 'connecting' || channel.status === 'qr_ready')
+                    ? 'pulse 2s infinite'
+                    : 'none',
+                  '@keyframes pulse': {
+                    '0%': {
+                      boxShadow: '0 0 0 0 rgba(245, 158, 11, 0.7)'
+                    },
+                    '70%': {
+                      boxShadow: '0 0 0 6px rgba(245, 158, 11, 0)'
+                    },
+                    '100%': {
+                      boxShadow: '0 0 0 0 rgba(245, 158, 11, 0)'
+                    }
+                  }
+                }}
+              />
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: '0.75rem', mb: 0.5 }}>
+                  Status do Canal
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                  {channel.status === 'connected' ? 'Conectado' :
+                  channel.status === 'connecting' ? 'Conectando...' :
+                  channel.status === 'qr_ready' ? 'Aguardando escaneamento do QR Code' :
+                  channel.status === 'disconnected' ? 'Desconectado' :
+                  channel.status === 'error' ? 'Erro de conexão' : channel.status}
+                </Typography>
+              </Box>
+            </Box>
+            
+            {/* Botões contextuais baseados no status */}
+            {channel.status === 'connected' && (
+              <Button
+                variant="outlined"
+                color="error"
+                onClick={handleToggleConnection}
+                startIcon={<CloseIcon />}
+                disabled={loading}
+                sx={{ 
+                  borderColor: 'rgba(239, 68, 68, 0.5)',
+                  '&:hover': {
+                    borderColor: '#EF4444',
+                    backgroundColor: 'rgba(239, 68, 68, 0.04)'
+                  }
+                }}
+              >
+                Desconectar
+              </Button>
+            )}
+            
+            {(channel.status === 'disconnected' || channel.status === 'error') && (
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={handleToggleConnection}
+                startIcon={<PowerSettingsNewIcon />}
+                disabled={loading}
+                sx={{ 
+                  background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
+                  boxShadow: '0 4px 12px rgba(99, 102, 241, 0.3)',
+                  '&:hover': {
+                    boxShadow: '0 6px 16px rgba(99, 102, 241, 0.4)',
+                  }
+                }}
+              >
+                Conectar
+              </Button>
+            )}
+            
+            {(channel.status === 'connecting' || channel.status === 'qr_ready') && (
+              <Button
+                variant="outlined"
+                color="warning"
+                onClick={handleToggleConnection}
+                startIcon={<CancelIcon />}
+                disabled={loading}
+                sx={{ 
+                  borderColor: 'rgba(245, 158, 11, 0.5)',
+                  color: '#D97706',
+                  '&:hover': {
+                    borderColor: '#F59E0B',
+                    backgroundColor: 'rgba(245, 158, 11, 0.04)'
+                  }
+                }}
+              >
+                Cancelar Conexão
+              </Button>
+            )}
+          </Box>
+          {loading && <LinearProgress sx={{ mt: 2, borderRadius: 1, height: 4 }} />}
+        </Paper>
+      )}
       
       {/* Informações do canal */}
       <Paper sx={{ p: 3, mb: 3 }}>
@@ -587,102 +1054,72 @@ function ChannelDetailPage() {
         
         {/* QR Code (se necessário) */}
         {qrCode && channel?.type === 'whatsapp' && channel?.status !== 'connected' && (
-          <QRCodeDisplay qrCode={qrCode} refreshQR={() => {
-            setQrCode(null);
-            handleToggleConnection();
-          }} />
+          <Box sx={{ mb: 4 }}>
+            <QRCodeDisplay qrCode={qrCode} refreshQR={handleRefreshQR} />
+          </Box>
         )}
       </Paper>
       
-      {/* Abas */}
-      <Paper sx={{ mb: 3 }}>
-        <Tabs 
-          value={tabValue} 
-          onChange={handleTabChange} 
-          variant="fullWidth"
-        >
-          <Tab label="Estatísticas" icon={<HistoryIcon />} iconPosition="start" />
-          <Tab label="Histórico" icon={<RefreshIcon />} iconPosition="start" />
-          <Tab label="Configurações" icon={<SettingsIcon />} iconPosition="start" />
-          <Tab label="Conversas" icon={<ChatIcon />} iconPosition="start" />
-        </Tabs>
+      {/* Tabs de conteúdo */}
+      <Paper 
+        elevation={0} 
+        sx={{ 
+          borderRadius: 3,
+          overflow: 'hidden',
+          border: '1px solid rgba(0, 0, 0, 0.06)',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
+        }}
+      >
+        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+          <Tabs 
+            value={tabValue} 
+            onChange={handleTabChange} 
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{ 
+              px: 2, 
+              backgroundColor: 'rgba(249, 250, 251, 0.7)',
+              '& .MuiTab-root': {
+                py: 2,
+                textTransform: 'none',
+                fontWeight: 600,
+                minWidth: 'auto',
+                mx: 1
+              }
+            }}
+          >
+            <Tab label="Configurações" icon={<SettingsIcon />} iconPosition="start" />
+            <Tab label="Estatísticas" icon={<BarChartIcon />} iconPosition="start" />
+            <Tab label="Eventos" icon={<HistoryIcon />} iconPosition="start" />
+          </Tabs>
+        </Box>
         
-        {/* Conteúdo da aba de estatísticas */}
-        {tabValue === 0 && (
-          <Box sx={{ p: 3 }}>
-            <ChannelStats stats={stats} />
-          </Box>
-        )}
-        
-        {/* Conteúdo da aba de histórico */}
-        {tabValue === 1 && (
-          <Box sx={{ p: 3 }}>
-            <ChannelHistory events={events} />
-          </Box>
-        )}
-        
-        {/* Conteúdo da aba de configurações */}
-        {tabValue === 2 && (
-          <Box sx={{ p: 3 }}>
+        <Box sx={{ p: 3 }}>
+          {/* Tab de configurações */}
+          <TabPanel value={tabValue} index={0}>
+            {channel?.type === 'whatsapp' && channel?.status === 'qr_ready' && qrCode && (
+              <Box sx={{ mb: 4 }}>
+                <QRCodeDisplay qrCode={qrCode} refreshQR={handleRefreshQR} />
+              </Box>
+            )}
+            
             <ChannelSettings 
               settings={channel?.settings} 
               onSave={handleSaveSettings} 
-              readOnly={channel?.status === 'connected'}
+              readOnly={loading || !channel}
             />
-            
-            <Box sx={{ mt: 4, pt: 4, borderTop: '1px solid rgba(0, 0, 0, 0.12)' }}>
-              <Typography variant="h6" color="error" gutterBottom>
-                Zona de Perigo
-              </Typography>
-              <Button 
-                variant="outlined" 
-                color="error" 
-                startIcon={<DeleteIcon />}
-                onClick={() => setOpenDeleteDialog(true)}
-              >
-                Excluir Canal
-              </Button>
-            </Box>
-          </Box>
-        )}
-        
-        {/* Conteúdo da aba de conversas */}
-        {tabValue === 3 && (
-          <Box sx={{ p: 3, height: '600px' }}>
-            {channel?.status === 'connected' ? (
-              <Grid container spacing={2} sx={{ height: '100%' }}>
-                <Grid item xs={12} md={4} sx={{ height: '100%' }}>
-                  <ConversationList 
-                    channelId={channel.id} 
-                    onSelectConversation={(conversation) => setSelectedConversation(conversation)}
-                  />
-                </Grid>
-                <Grid item xs={12} md={8} sx={{ height: '100%' }}>
-                  <ConversationChat 
-                    channelId={channel.id} 
-                    conversation={selectedConversation}
-                  />
-                </Grid>
-              </Grid>
-            ) : (
-              <Box sx={{ textAlign: 'center', py: 10 }}>
-                <Typography variant="h6" gutterBottom color="textSecondary">
-                  O canal precisa estar conectado para visualizar conversas
-                </Typography>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  onClick={handleToggleConnection}
-                  disabled={loading}
-                  startIcon={<LinkIcon />}
-                  sx={{ mt: 2 }}
-                >
-                  Conectar Canal
-                </Button>
-              </Box>
-            )}
-          </Box>
-        )}
+          </TabPanel>
+          
+          {/* Tab de estatísticas */}
+          <TabPanel value={tabValue} index={1}>
+            <ChannelStats stats={stats} />
+          </TabPanel>
+          
+          {/* Tab de mensagens */}
+          <TabPanel value={tabValue} index={2}>
+            <ChannelHistory events={events} />
+          </TabPanel>
+        </Box>
       </Paper>
       
       {/* Snackbar para mensagens */}

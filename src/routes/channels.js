@@ -16,7 +16,7 @@ router.get('/:id/status', channelController.getChannelStatus);
 
 // Rotas específicas para WhatsApp
 router.post('/whatsapp/:id/connect', channelController.connectWhatsApp);
-router.get('/whatsapp/:id/qrcode', channelController.getWhatsAppQR);
+router.get('/whatsapp/:id/qr-code', channelController.getWhatsAppQR);
 router.get('/whatsapp/:id/status', channelController.checkWhatsAppStatus);
 router.post('/whatsapp/:id/disconnect', channelController.disconnectWhatsApp);
 

@@ -3,10 +3,12 @@
  * Armazena e gerencia instâncias de clientes WhatsApp em memória
  */
 
+const { Client } = require('whatsapp-web.js');
+
 class WhatsAppClientManager {
   constructor() {
-    // Armazenar clientes em um Map para acesso rápido por channelId
-    this.clients = new Map();
+    // Armazenar clientes em um objeto para acesso rápido por channelId
+    this.clients = {};
     console.log('WhatsApp Client Manager inicializado');
   }
 
@@ -16,17 +18,28 @@ class WhatsAppClientManager {
    * @param {Object} client - Instância do cliente WhatsApp
    */
   addClient(channelId, client) {
-    this.clients.set(channelId, client);
     console.log(`Cliente adicionado para o canal ${channelId}`);
+    this.clients[channelId] = client;
   }
 
   /**
    * Obter um cliente do gerenciador
    * @param {string} channelId - ID do canal
-   * @returns {Object|null} - Instância do cliente ou null se não existir
+   * @returns {Object} - Instância do cliente
    */
   getClient(channelId) {
-    return this.clients.get(channelId) || null;
+    return this.clients[channelId];
+  }
+
+  /**
+   * Remover um cliente do gerenciador
+   * @param {string} channelId - ID do canal
+   */
+  removeClient(channelId) {
+    console.log(`Cliente removido para o canal ${channelId}`);
+    if (this.clients[channelId]) {
+      delete this.clients[channelId];
+    }
   }
 
   /**
@@ -35,60 +48,37 @@ class WhatsAppClientManager {
    * @returns {boolean} - True se o cliente existir, false caso contrário
    */
   hasClient(channelId) {
-    return this.clients.has(channelId);
+    return !!this.clients[channelId];
   }
 
   /**
-   * Remover um cliente do gerenciador
-   * @param {string} channelId - ID do canal
+   * Listar todos os clientes ativos
+   * @returns {Array} - IDs dos clientes ativos
    */
-  removeClient(channelId) {
-    if (this.clients.has(channelId)) {
-      const client = this.clients.get(channelId);
-      
-      // Tentar desconectar o cliente de forma limpa
+  listActiveClients() {
+    return Object.keys(this.clients);
+  }
+
+  /**
+   * Desconectar todos os clientes
+   */
+  async disconnectAll() {
+    console.log('Desconectando todos os clientes WhatsApp...');
+    const clientIds = Object.keys(this.clients);
+    for (const id of clientIds) {
       try {
-        if (client && typeof client.destroy === 'function') {
-          client.destroy();
+        const client = this.clients[id];
+        if (client) {
+          await client.logout();
+          await client.destroy();
+          delete this.clients[id];
         }
       } catch (error) {
-        console.error(`Erro ao destruir cliente para o canal ${channelId}:`, error);
-      }
-      
-      this.clients.delete(channelId);
-      console.log(`Cliente removido para o canal ${channelId}`);
-    }
-  }
-
-  /**
-   * Obter todos os clientes ativos
-   * @returns {Map} - Map com todos os clientes
-   */
-  getAllClients() {
-    return this.clients;
-  }
-
-  /**
-   * Limpar todos os clientes
-   */
-  clearAllClients() {
-    // Desconectar todos os clientes
-    for (const [channelId, client] of this.clients.entries()) {
-      try {
-        if (client && typeof client.destroy === 'function') {
-          client.destroy();
-        }
-      } catch (error) {
-        console.error(`Erro ao destruir cliente para o canal ${channelId}:`, error);
+        console.error(`Erro ao desconectar cliente ${id}:`, error);
       }
     }
-    
-    this.clients.clear();
-    console.log('Todos os clientes foram removidos');
   }
 }
 
 // Exportar uma única instância do gerenciador para ser usada em toda a aplicação
-const whatsappClientManager = new WhatsAppClientManager();
-
-module.exports = whatsappClientManager;
+module.exports = new WhatsAppClientManager();
